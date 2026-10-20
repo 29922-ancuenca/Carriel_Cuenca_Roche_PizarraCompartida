@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pizarra Compartida</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --fondo: #f4f5f7;
+      --panel: #ffffff;
+      --borde: #e3e5ea;
+      --texto: #1f2328;
+      --texto-suave: #6b7280;
+      --acento: #4f46e5;
+      --acento-suave: #eef2ff;
+      --peligro: #dc2626;
+      --sombra: 0 4px 20px rgba(17, 24, 39, 0.08), 0 1px 3px rgba(17, 24, 39, 0.06);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      font-family: "Inter", -apple-system, "Segoe UI", Roboto, sans-serif;
+      color: var(--texto);
+      background-color: var(--fondo);
+      /* cuadricula de puntos de fondo, estilo Miro */
+      background-image: radial-gradient(#cfd3da 1px, transparent 1px);
+      background-size: 22px 22px;
+      overflow: hidden;
+    }
+
+    /* ---------- barra superior ---------- */
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0.75rem 1.25rem;
+      background: var(--panel);
+      border-bottom: 1px solid var(--borde);
+    }
+
+    .marca { display: flex; align-items: center; gap: 0.6rem; }
+    .logo {
+      width: 32px; height: 32px; border-radius: 8px;
+      display: grid; place-items: center;
+      background: var(--acento); color: #fff;
+    }
+    .marca h1 { margin: 0; font-size: 1rem; font-weight: 600; }
+    .marca span { font-size: 0.8rem; color: var(--texto-suave); }
+
+    .estado { display: flex; align-items: center; gap: 0.75rem; font-size: 0.85rem; }
+    .chip {
+      display: flex; align-items: center; gap: 0.4rem;
+      padding: 0.35rem 0.75rem; border-radius: 999px;
+      background: var(--fondo); border: 1px solid var(--borde);
+    }
+    .punto { width: 8px; height: 8px; border-radius: 50%; background: #9ca3af; }
+    .chip.online .punto { background: #16a34a; box-shadow: 0 0 0 3px rgba(22,163,74,0.2); }
+
+    /* ---------- area de trabajo ---------- */
+    main {
+      flex: 1;
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1.5rem 1.5rem 1.5rem 6rem;
+      min-height: 0;
+    }
+
+    #pizarra {
+      background: #fff;
+      border-radius: 12px;
+      box-shadow: var(--sombra);
+      max-width: 100%;
+      max-height: 100%;
+      cursor: crosshair;
+      touch-action: none;
+    }
+
+    /* capa transparente encima del lienzo, solo para la vista previa de las formas */
+    #capa {
+      position: absolute;
+      pointer-events: none;
+      border-radius: 12px;
+    }
+
+    /* ---------- barra de herramientas flotante ---------- */
+    .herramientas {
+      position: absolute;
+      left: 1.25rem;
+      top: 50%;
+      transform: translateY(-50%);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.4rem;
+      padding: 0.5rem;
+      max-height: calc(100% - 1rem);
+      overflow-y: auto;
+      background: var(--panel);
+      border: 1px solid var(--borde);
+      border-radius: 14px;
+      box-shadow: var(--sombra);
+    }
+
+    .separador { width: 70%; height: 1px; background: var(--borde); margin: 0.2rem 0; }
+
+    .btn {
+      flex-shrink: 0;
+      width: 38px; height: 38px;
+      display: grid; place-items: center;
+      border: none; border-radius: 10px;
+      background: transparent; color: var(--texto);
+      cursor: pointer;
+      transition: background 0.15s, color 0.15s;
+    }
+    .btn:hover { background: var(--fondo); }
+    .btn.activo { background: var(--acento-suave); color: var(--acento); }
+    .btn.peligro:hover { background: #fef2f2; color: var(--peligro); }
+    .btn svg { width: 20px; height: 20px; }
+
+    .muestra {
+      flex-shrink: 0;
+      width: 24px; height: 24px; border-radius: 50%;
+      border: 2px solid #fff;
+      box-shadow: 0 0 0 1px var(--borde);
+      cursor: pointer;
+      transition: transform 0.15s;
+    }
+    .muestra:hover { transform: scale(1.12); }
+    .muestra.activo { box-shadow: 0 0 0 2px var(--acento); }
+
+    .color-libre {
+      position: relative; width: 24px; height: 24px; border-radius: 50%;
+      background: conic-gradient(red, yellow, lime, cyan, blue, magenta, red);
+      border: 2px solid #fff; box-shadow: 0 0 0 1px var(--borde);
+      cursor: pointer; overflow: hidden;
+    }
+    .color-libre input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+
+    .grosor { display: flex; flex-direction: column; align-items: center; gap: 0.3rem; }
+    .grosor input {
+      writing-mode: vertical-lr;
+      direction: rtl;
+      width: 6px; height: 70px;
+      accent-color: var(--acento);
+    }
+    .grosor span { font-size: 0.7rem; color: var(--texto-suave); }
+
+    /* ---------- aviso flotante ---------- */
+    #aviso {
+      position: fixed; bottom: 1.5rem; left: 50%;
+      transform: translate(-50%, 20px);
+      padding: 0.6rem 1rem; border-radius: 10px;
+      background: #111827; color: #fff; font-size: 0.85rem;
+      opacity: 0; pointer-events: none;
+      transition: opacity 0.2s, transform 0.2s;
+    }
+    #aviso.visible { opacity: 1; transform: translate(-50%, 0); }
+
+    @media (max-width: 640px) {
+      .marca span, .chip.oculto-movil { display: none; }
+      main { padding: 1rem 1rem 1rem 5rem; }
+      .herramientas { left: 0.6rem; }
+    }
+  </style>
+</head>
+
+<body>
+    <header>
+        <div class="marca">
+            <div class="logo">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/><path d="M2 2l7.586 7.586"/><circle cx="11" cy="11" r="2"/></svg>
+            </div>
+            <div>
+                <h1>Pizarra Compartida</h1>
+                <span>Dibuja en tiempo real con tu equipo</span>
+            </div>
+        </div>
+        <div class="estado">
+            <div class="chip" id="conexion"><div class="punto"></div><span id="textoConexion">Conectando…</span></div>
+            <div class="chip oculto-movil">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                <span id="usuarios">0</span>&nbsp;en línea
+            </div>
+        </div>
+    </header>
+
+    <main>
+        <!-- barra de herramientas -->
+        <div class="herramientas">
+            <button class="btn activo" data-herramienta="lapiz" title="Lápiz">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+            </button>
+            <button class="btn" data-herramienta="borrador" title="Borrador">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20H7L3 16a1 1 0 0 1 0-1.4l10-10a1 1 0 0 1 1.4 0l6 6a1 1 0 0 1 0 1.4L13 19"/><path d="M6 11l7 7"/></svg>
+            </button>
+            <button class="btn" data-herramienta="linea" title="Línea recta">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="5" y1="19" x2="19" y2="5"/></svg>
+            </button>
+            <button class="btn" data-herramienta="rect" title="Rectángulo">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2"/></svg>
+            </button>
+            <button class="btn" data-herramienta="circulo" title="Círculo / elipse">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/></svg>
+            </button>
+
+            <div class="separador"></div>
+
+            <!-- paleta de colores -->
+            <div class="muestra activo" data-color="#111827" style="background:#111827" title="Negro"></div>
+            <div class="muestra" data-color="#dc2626" style="background:#dc2626" title="Rojo"></div>
+            <div class="muestra" data-color="#f59e0b" style="background:#f59e0b" title="Amarillo"></div>
+            <div class="muestra" data-color="#16a34a" style="background:#16a34a" title="Verde"></div>
+            <div class="muestra" data-color="#2563eb" style="background:#2563eb" title="Azul"></div>
+            <div class="muestra" data-color="#9333ea" style="background:#9333ea" title="Morado"></div>
+            <label class="color-libre" title="Otro color"><input type="color" id="color" value="#111827"></label>
+
+            <div class="separador"></div>
+
+            <div class="grosor" title="Grosor">
+                <input type="range" id="grosor" min="1" max="30" value="4">
+                <span id="valorGrosor">4px</span>
+            </div>
+
+            <div class="separador"></div>
+
+            <button class="btn peligro" id="limpiar" title="Borrar todo">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+            </button>
+        </div>
+
+        <!-- tamaño fijo del lienzo para que las coordenadas sean las mismas en todos los clientes -->
+        <canvas id="pizarra" width="1400" height="800"></canvas>
+        <canvas id="capa" width="1400" height="800"></canvas>
+    </main>
+
+    <div id="aviso"></div>
+
+    <script src="/socket.io/socket.io.js"></script>
+
+    <script>
+        //logica de la conexion hacia el servidor
+        const socket = io()
+
+        const canvas = document.getElementById('pizarra')
+        const ctx = canvas.getContext('2d')
+        const capa = document.getElementById('capa')
+        const ctxCapa = capa.getContext('2d')
+        const inputColor = document.getElementById('color')
+        const inputGrosor = document.getElementById('grosor')
+        const COLOR_FONDO = '#ffffff'
+
+        const FORMAS = ['linea', 'rect', 'circulo']
+
+        let dibujando = false
+        let inicioX = 0, inicioY = 0 //donde empezo el arrastre (para las formas)
+        let ultimoX = 0, ultimoY = 0 //ultima posicion del raton
+        let colorActual = '#111827'
+        let herramienta = 'lapiz' // 'lapiz', 'borrador', 'linea', 'rect' o 'circulo'
+
+        // ---------- interfaz ----------
+
+        //seleccion de color en la paleta
+        const muestras = document.querySelectorAll('.muestra')
+        muestras.forEach(m => m.addEventListener('click', () => {
+            colorActual = m.dataset.color
+            marcarColor(m)
+            if (herramienta === 'borrador') seleccionarHerramienta('lapiz')
+        }))
+
+        inputColor.addEventListener('input', () => {
+            colorActual = inputColor.value
+            marcarColor(null)
+            if (herramienta === 'borrador') seleccionarHerramienta('lapiz')
+        })
+
+        function marcarColor(elegido) {
+            muestras.forEach(m => m.classList.toggle('activo', m === elegido))
+        }
+
+        //lapiz, borrador y formas
+        const botonesHerramienta = document.querySelectorAll('[data-herramienta]')
+        botonesHerramienta.forEach(b => b.addEventListener('click', () => seleccionarHerramienta(b.dataset.herramienta)))
+
+        function seleccionarHerramienta(h) {
+            herramienta = h
+            botonesHerramienta.forEach(b => b.classList.toggle('activo', b.dataset.herramienta === h))
+        }
+
+        //coloca la capa de vista previa exactamente encima del lienzo
+        function ajustarCapa() {
+            capa.style.left = canvas.offsetLeft + 'px'
+            capa.style.top = canvas.offsetTop + 'px'
+            capa.style.width = canvas.offsetWidth + 'px'
+            capa.style.height = canvas.offsetHeight + 'px'
+        }
+        new ResizeObserver(ajustarCapa).observe(canvas)
+        window.addEventListener('resize', ajustarCapa)
+
+        inputGrosor.addEventListener('input', () => {
+            document.getElementById('valorGrosor').textContent = inputGrosor.value + 'px'
+        })
+
+        //mensaje flotante temporal
+        let tiempoAviso
+        function mostrarAviso(texto) {
+            const aviso = document.getElementById('aviso')
+            aviso.textContent = texto
+            aviso.classList.add('visible')
+            clearTimeout(tiempoAviso)
+            tiempoAviso = setTimeout(() => aviso.classList.remove('visible'), 2500)
+        }
+
+        // ---------- dibujo ----------
+
+        //convierte la posicion del raton en la pantalla a coordenadas reales del canvas
+        //(por si el canvas se ve mas pequeño por el CSS)
+        function obtenerCoordenadas(e) {
+            const rect = canvas.getBoundingClientRect()
+            return {
+                x: (e.clientX - rect.left) * (canvas.width / rect.width),
+                y: (e.clientY - rect.top) * (canvas.height / rect.height)
+            }
+        }
+
+        //dibuja un trazo o una forma en el contexto indicado (lo usan el cliente local y el remoto)
+        //tipo: 'trazo' (segmento del lapiz), 'linea', 'rect' o 'circulo'
+        function dibujar(c, trazo) {
+            c.beginPath()
+            c.strokeStyle = trazo.color
+            c.lineWidth = trazo.grosor
+            c.lineCap = 'round'
+            c.lineJoin = 'round'
+
+            if (trazo.tipo === 'rect') {
+                c.rect(trazo.x0, trazo.y0, trazo.x1 - trazo.x0, trazo.y1 - trazo.y0)
+            } else if (trazo.tipo === 'circulo') {
+                //elipse que cabe en el rectangulo formado por los dos puntos
+                const cx = (trazo.x0 + trazo.x1) / 2
+                const cy = (trazo.y0 + trazo.y1) / 2
+                c.ellipse(cx, cy, Math.abs(trazo.x1 - trazo.x0) / 2, Math.abs(trazo.y1 - trazo.y0) / 2, 0, 0, 2 * Math.PI)
+            } else {
+                //'trazo' y 'linea' son un segmento entre dos puntos
+                c.moveTo(trazo.x0, trazo.y0)
+                c.lineTo(trazo.x1, trazo.y1)
+            }
+            c.stroke()
+        }
+
+        function limpiarCapa() {
+            ctxCapa.clearRect(0, 0, capa.width, capa.height)
+        }
+
+        //1. mousedown: empieza el trazo o la forma
+        canvas.addEventListener('mousedown', (e) => {
+            dibujando = true
+            const p = obtenerCoordenadas(e)
+            inicioX = ultimoX = p.x
+            inicioY = ultimoY = p.y
+        })
+
+        //2. mousemove
+        canvas.addEventListener('mousemove', (e) => {
+            if (!dibujando) return
+            const p = obtenerCoordenadas(e)
+
+            if (FORMAS.includes(herramienta)) {
+                //formas: solo vista previa en la capa de encima, se envian al soltar
+                limpiarCapa()
+                dibujar(ctxCapa, { tipo: herramienta, x0: inicioX, y0: inicioY, x1: p.x, y1: p.y, color: colorActual, grosor: inputGrosor.value })
+            } else {
+                //lapiz / borrador: por cada movimiento se dibuja localmente y se envia el JSON al servidor
+                const esBorrador = herramienta === 'borrador'
+                const trazo = {
+                    tipo: 'trazo',
+                    x0: ultimoX, y0: ultimoY, //punto anterior
+                    x1: p.x, y1: p.y,         //punto actual
+                    color: esBorrador ? COLOR_FONDO : colorActual,
+                    grosor: esBorrador ? inputGrosor.value * 4 : inputGrosor.value
+                }
+                dibujar(ctx, trazo)           //lo dibujo en mi pantalla
+                socket.emit('dibujar', trazo) //lo envio al servidor (alta frecuencia)
+            }
+
+            ultimoX = p.x
+            ultimoY = p.y
+        })
+
+        //3. mouseup / mouseleave: termina el trazo; si es una forma se fija en el lienzo y se envia
+        function terminar() {
+            if (!dibujando) return
+            dibujando = false
+
+            if (FORMAS.includes(herramienta)) {
+                limpiarCapa()
+                //si solo fue un clic sin arrastrar no se dibuja nada
+                if (inicioX === ultimoX && inicioY === ultimoY) return
+                const forma = { tipo: herramienta, x0: inicioX, y0: inicioY, x1: ultimoX, y1: ultimoY, color: colorActual, grosor: inputGrosor.value }
+                dibujar(ctx, forma)
+                socket.emit('dibujar', forma)
+            }
+        }
+        canvas.addEventListener('mouseup', terminar)
+        canvas.addEventListener('mouseleave', terminar)
+
+        //4. recepcion: cuando llega un trazo o forma de otro cliente se dibuja en las mismas coordenadas
+        socket.on('dibujar', (trazo) => {
+            dibujar(ctx, trazo)
+        })
+
+        //borrar la pizarra local y avisar a los demas
+        document.getElementById('limpiar').addEventListener('click', () => {
+            ctx.clearRect(0, 0, canvas.width, canvas.height)
+            socket.emit('limpiar')
+            mostrarAviso('Pizarra borrada')
+        })
+
+        socket.on('limpiar', () => {
+            ctx.clearRect(0, 0, canvas.width, canvas.height)
+            mostrarAviso('Otro participante borró la pizarra')
+        })
+
+        // ---------- estado de conexion ----------
+
+        socket.on('connect', () => {
+            document.getElementById('conexion').classList.add('online')
+            document.getElementById('textoConexion').textContent = 'Conectado'
+        })
+
+        socket.on('disconnect', () => {
+            document.getElementById('conexion').classList.remove('online')
+            document.getElementById('textoConexion').textContent = 'Desconectado'
+        })
+
+        socket.on('usuarios', (cantidad) => {
+            document.getElementById('usuarios').textContent = cantidad
+        })
+    </script>
+</body>
+
+</html>

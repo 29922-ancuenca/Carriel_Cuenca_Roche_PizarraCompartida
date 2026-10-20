@@ -1,0 +1,16 @@
+{
+  "name": "pizarra-compartida",
+  "version": "1.0.0",
+  "description": "Pizarra colaborativa en tiempo real con Socket.io",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "express": "^5.3.0",
+    "socket.io": "^4.8.4"
+  }
+}
