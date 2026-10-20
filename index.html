@@ -512,6 +512,24 @@
             dibujar(ctx, trazo)
         })
 
+        //5. sincronizacion para quien entra tarde
+        //el servidor me pide una foto de mi lienzo para un participante nuevo
+        socket.on('pedir-estado', (destino) => {
+            socket.emit('estado', { destino, imagen: canvas.toDataURL('image/png') })
+        })
+
+        //soy el nuevo: recibo la foto del lienzo de otro participante y la pinto
+        socket.on('estado', (imagen) => {
+            const img = new Image()
+            img.onload = () => {
+                //'destination-over' la pinta DEBAJO, para no tapar trazos que llegaron mientras cargaba
+                ctx.globalCompositeOperation = 'destination-over'
+                ctx.drawImage(img, 0, 0)
+                ctx.globalCompositeOperation = 'source-over'
+            }
+            img.src = imagen
+        })
+
         //borrar la pizarra local y avisar a los demas
         document.getElementById('limpiar').addEventListener('click', () => {
             ctx.clearRect(0, 0, canvas.width, canvas.height)

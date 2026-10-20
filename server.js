@@ -8,7 +8,8 @@ const { Server } = require("socket.io") //importa la libreria
 //acoplamos la infraestructura
 const app = express()
 const server = createServer(app)
-const io = new Server(server)
+//se sube el limite de tamaño de mensaje (1 MB por defecto) porque la foto del lienzo puede pesar mas
+const io = new Server(server, { maxHttpBufferSize: 1e7 })
 
 //en Render el puerto lo asigna la plataforma (variable PORT); en local usa el 4000
 const PORT = process.env.PORT || 4000
@@ -51,6 +52,17 @@ io.on("connection", (socket) => {
         enlaces: esEditor ? { editar: CLAVE_EDITAR, ver: CLAVE_VER } : { ver: CLAVE_VER }
     })
     avisarUsuarios()
+
+    //sincronizacion para quien entra tarde: el servidor NO guarda el dibujo,
+    //le pide al participante conectado mas antiguo una foto de su lienzo
+    //y se la reenvia solo al que acaba de llegar
+    const veterano = [...io.of("/").sockets.values()].find(s => s.id !== socket.id)
+    if (veterano) veterano.emit("pedir-estado", socket.id)
+
+    socket.on("estado", (datos) => {
+        if (!datos || typeof datos.destino !== "string") return
+        io.to(datos.destino).emit("estado", datos.imagen)
+    })
 
     //el servidor es solo un "espejo": recibe el trazo del cliente A
     //y lo retransmite a todos los DEMAS clientes (B, C...) sin guardarlo.
