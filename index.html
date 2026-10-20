@@ -165,6 +165,59 @@
     }
     #aviso.visible { opacity: 1; transform: translate(-50%, 0); }
 
+    /* ---------- boton y dialogo de compartir ---------- */
+    .btn-primario {
+      display: flex; align-items: center; gap: 0.4rem;
+      padding: 0.5rem 1rem; border: none; border-radius: 8px;
+      background: var(--acento); color: #fff;
+      font: inherit; font-size: 0.85rem; font-weight: 500;
+      cursor: pointer; white-space: nowrap;
+    }
+    .btn-primario:hover { filter: brightness(1.1); }
+    .btn-primario svg { width: 16px; height: 16px; }
+
+    dialog {
+      width: min(480px, calc(100% - 2rem));
+      padding: 1.25rem; border: none; border-radius: 14px;
+      box-shadow: 0 20px 50px rgba(17, 24, 39, 0.25);
+      color: var(--texto);
+    }
+    dialog::backdrop { background: rgba(17, 24, 39, 0.35); }
+    .dialogo-cabecera { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
+    .dialogo-cabecera h3 { margin: 0; font-size: 1.1rem; font-weight: 600; }
+
+    .campo {
+      display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+      padding: 0.75rem; border-radius: 10px; background: var(--fondo);
+      font-size: 0.9rem;
+    }
+    .campo select {
+      padding: 0.4rem 0.6rem; border: 1px solid var(--borde); border-radius: 8px;
+      background: #fff; font: inherit; font-size: 0.85rem; cursor: pointer;
+    }
+    .nota { font-size: 0.8rem; color: var(--texto-suave); margin: 0.6rem 0 1rem; }
+    .fila-enlace { display: flex; gap: 0.5rem; }
+    .fila-enlace input {
+      flex: 1; min-width: 0;
+      padding: 0.5rem 0.75rem; border: 1px solid var(--borde); border-radius: 8px;
+      font: inherit; font-size: 0.8rem; color: var(--texto-suave); background: var(--fondo);
+    }
+
+    /* ---------- modo solo lectura ---------- */
+    body.solo-lectura .herramientas { display: none; }
+    body.solo-lectura main { padding-left: 1.5rem; }
+    body.solo-lectura #pizarra { cursor: default; }
+
+    /* ---------- pantalla sin acceso ---------- */
+    .sin-acceso {
+      position: fixed; inset: 0; z-index: 10;
+      display: grid; place-items: center; text-align: center;
+      background: var(--fondo); padding: 1rem;
+    }
+    .sin-acceso[hidden] { display: none; }
+    .sin-acceso h2 { margin: 0 0 0.5rem; }
+    .sin-acceso p { margin: 0; color: var(--texto-suave); }
+
     @media (max-width: 640px) {
       .marca span, .chip.oculto-movil { display: none; }
       main { padding: 1rem 1rem 1rem 5rem; }
@@ -190,6 +243,11 @@
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
                 <span id="usuarios">0</span>&nbsp;en línea
             </div>
+            <div class="chip oculto-movil"><span id="textoRol">…</span></div>
+            <button class="btn-primario" id="compartir">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+                Compartir
+            </button>
         </div>
     </header>
 
@@ -244,11 +302,48 @@
 
     <div id="aviso"></div>
 
+    <!-- dialogo de compartir, estilo Word en linea -->
+    <dialog id="dialogoCompartir">
+        <form method="dialog">
+            <div class="dialogo-cabecera">
+                <h3>Compartir pizarra</h3>
+                <button class="btn" value="cerrar" title="Cerrar">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </button>
+            </div>
+            <div class="campo">
+                <span>Cualquier persona con el enlace</span>
+                <select id="permisoEnlace">
+                    <option value="editar">Puede editar</option>
+                    <option value="ver">Puede ver</option>
+                </select>
+            </div>
+            <p class="nota" id="notaPermiso"></p>
+            <div class="fila-enlace">
+                <input id="enlace" readonly>
+                <button type="button" class="btn-primario" id="copiar">Copiar enlace</button>
+            </div>
+        </form>
+    </dialog>
+
+    <!-- se muestra si el enlace no tiene una clave valida -->
+    <div class="sin-acceso" id="sinAcceso" hidden>
+        <div>
+            <h2>No tienes acceso a esta pizarra</h2>
+            <p>Pide a la persona que la creó un enlace para ver o editar.</p>
+        </div>
+    </div>
+
     <script src="/socket.io/socket.io.js"></script>
 
     <script>
         //logica de la conexion hacia el servidor
-        const socket = io()
+        //la clave viene en el enlace compartido: /?clave=xxxx y el servidor decide el permiso
+        const clave = new URLSearchParams(location.search).get('clave')
+        const socket = io({ auth: { clave } })
+
+        let rol = null      // 'editor' o 'lector' (lo asigna el servidor)
+        let enlaces = {}    // claves que este usuario puede compartir
 
         const canvas = document.getElementById('pizarra')
         const ctx = canvas.getContext('2d')
@@ -361,6 +456,7 @@
 
         //1. mousedown: empieza el trazo o la forma
         canvas.addEventListener('mousedown', (e) => {
+            if (rol !== 'editor') return //los lectores no pueden dibujar
             dibujando = true
             const p = obtenerCoordenadas(e)
             inicioX = ultimoX = p.x
@@ -442,6 +538,61 @@
 
         socket.on('usuarios', (cantidad) => {
             document.getElementById('usuarios').textContent = cantidad
+        })
+
+        //el enlace no tiene una clave valida
+        socket.on('connect_error', (err) => {
+            if (err.message === 'sin permiso') document.getElementById('sinAcceso').hidden = false
+        })
+
+        // ---------- permisos y compartir ----------
+
+        const dialogo = document.getElementById('dialogoCompartir')
+        const selectPermiso = document.getElementById('permisoEnlace')
+        const inputEnlace = document.getElementById('enlace')
+        const botonCopiar = document.getElementById('copiar')
+
+        //el servidor nos dice que permiso tenemos
+        socket.on('permiso', (datos) => {
+            rol = datos.rol
+            enlaces = datos.enlaces
+            const esEditor = rol === 'editor'
+
+            document.body.classList.toggle('solo-lectura', !esEditor)
+            document.getElementById('textoRol').textContent = esEditor ? 'Puede editar' : 'Solo lectura'
+
+            //un lector solo puede compartir el enlace de vista
+            selectPermiso.querySelector('[value="editar"]').disabled = !esEditor
+            selectPermiso.value = esEditor ? 'editar' : 'ver'
+            ajustarCapa()
+        })
+
+        //arma el enlace segun la opcion elegida
+        function actualizarEnlace() {
+            const tipo = selectPermiso.value
+            inputEnlace.value = location.origin + '/?clave=' + enlaces[tipo]
+            document.getElementById('notaPermiso').textContent = tipo === 'editar'
+                ? 'Las personas con este enlace podrán dibujar, usar formas y borrar la pizarra.'
+                : 'Las personas con este enlace verán los cambios en tiempo real, pero no podrán dibujar.'
+            botonCopiar.textContent = 'Copiar enlace'
+        }
+
+        document.getElementById('compartir').addEventListener('click', () => {
+            actualizarEnlace()
+            dialogo.showModal()
+        })
+
+        selectPermiso.addEventListener('change', actualizarEnlace)
+
+        botonCopiar.addEventListener('click', async () => {
+            try {
+                await navigator.clipboard.writeText(inputEnlace.value)
+            } catch {
+                //el portapapeles moderno solo funciona con https o localhost
+                inputEnlace.select()
+                document.execCommand('copy')
+            }
+            botonCopiar.textContent = '¡Copiado!'
         })
     </script>
 </body>
