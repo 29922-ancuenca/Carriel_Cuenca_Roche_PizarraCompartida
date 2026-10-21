@@ -227,6 +227,7 @@
 </head>
 
 <body>
+    <!-- barra superior: nombre, estado de la conexion, usuarios en linea, permiso y boton compartir -->
     <header>
         <div class="marca">
             <div class="logo">
@@ -252,7 +253,9 @@
     </header>
 
     <main>
-        <!-- barra de herramientas -->
+        <!-- barra de herramientas (se oculta para quien entra con enlace de solo lectura) -->
+        <!-- data-herramienta indica que herramienta activa cada boton -->
+
         <div class="herramientas">
             <button class="btn activo" data-herramienta="lapiz" title="Lápiz">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
@@ -296,13 +299,15 @@
         </div>
 
         <!-- tamaño fijo del lienzo para que las coordenadas sean las mismas en todos los clientes -->
+        <!-- "pizarra" es el dibujo real; "capa" va encima y solo muestra la forma mientras se arrastra -->
         <canvas id="pizarra" width="1400" height="800"></canvas>
         <canvas id="capa" width="1400" height="800"></canvas>
     </main>
 
+    <!-- mensaje temporal que aparece abajo (ej. "Pizarra borrada") -->
     <div id="aviso"></div>
 
-    <!-- dialogo de compartir, estilo Word en linea -->
+    <!-- dialogo de compartir -->
     <dialog id="dialogoCompartir">
         <form method="dialog">
             <div class="dialogo-cabecera">
@@ -334,25 +339,38 @@
         </div>
     </div>
 
+    <!-- libreria socket.io-client: la entrega el propio servidor de socket.io en esta ruta -->
     <script src="/socket.io/socket.io.js"></script>
 
     <script>
+        // ============================================================
+        //  CLIENTE DE LA PIZARRA COMPARTIDA
+        //  1. captura el raton (o el dedo) sobre el <canvas>
+        //  2. dibuja el trazo en su propia pantalla
+        //  3. envia las coordenadas al servidor en cada movimiento
+        //  4. dibuja los trazos que llegan de los demas participantes
+        // ============================================================
+
         //logica de la conexion hacia el servidor
         //la clave viene en el enlace compartido: /?clave=xxxx y el servidor decide el permiso
         const clave = new URLSearchParams(location.search).get('clave')
+        //io() abre el WebSocket con el mismo servidor que entrego la pagina y le manda la clave
         const socket = io({ auth: { clave } })
 
         let rol = null      // 'editor' o 'lector' (lo asigna el servidor)
         let enlaces = {}    // claves que este usuario puede compartir
 
+        //el lienzo principal y su "contexto 2d", que es el objeto con los metodos para dibujar
         const canvas = document.getElementById('pizarra')
         const ctx = canvas.getContext('2d')
+        //segundo lienzo transparente encima, solo para la vista previa de las formas
         const capa = document.getElementById('capa')
         const ctxCapa = capa.getContext('2d')
         const inputColor = document.getElementById('color')
         const inputGrosor = document.getElementById('grosor')
-        const COLOR_FONDO = '#ffffff'
+        const COLOR_FONDO = '#ffffff' //el borrador pinta con el color del fondo
 
+        //herramientas que se dibujan de una sola vez al soltar (no punto por punto)
         const FORMAS = ['linea', 'rect', 'circulo']
 
         let dibujando = false
@@ -364,19 +382,23 @@
         // ---------- interfaz ----------
 
         //seleccion de color en la paleta
+        //(cada circulo de color guarda su valor en el atributo data-color)
         const muestras = document.querySelectorAll('.muestra')
         muestras.forEach(m => m.addEventListener('click', () => {
             colorActual = m.dataset.color
             marcarColor(m)
+            //si estaba con el borrador y elige un color, se entiende que quiere volver a dibujar
             if (herramienta === 'borrador') seleccionarHerramienta('lapiz')
         }))
 
+        //selector de color libre (<input type="color">)
         inputColor.addEventListener('input', () => {
             colorActual = inputColor.value
             marcarColor(null)
             if (herramienta === 'borrador') seleccionarHerramienta('lapiz')
         })
 
+        //resalta el color elegido en la paleta (null = ninguno, se uso el color libre)
         function marcarColor(elegido) {
             muestras.forEach(m => m.classList.toggle('activo', m === elegido))
         }
@@ -385,6 +407,7 @@
         const botonesHerramienta = document.querySelectorAll('[data-herramienta]')
         botonesHerramienta.forEach(b => b.addEventListener('click', () => seleccionarHerramienta(b.dataset.herramienta)))
 
+        //cambia la herramienta actual y resalta su boton
         function seleccionarHerramienta(h) {
             herramienta = h
             botonesHerramienta.forEach(b => b.classList.toggle('activo', b.dataset.herramienta === h))
@@ -397,9 +420,11 @@
             capa.style.width = canvas.offsetWidth + 'px'
             capa.style.height = canvas.offsetHeight + 'px'
         }
+        //se recoloca cada vez que el lienzo o la ventana cambian de tamaño
         new ResizeObserver(ajustarCapa).observe(canvas)
         window.addEventListener('resize', ajustarCapa)
 
+        //muestra el grosor elegido debajo del deslizador
         inputGrosor.addEventListener('input', () => {
             document.getElementById('valorGrosor').textContent = inputGrosor.value + 'px'
         })
@@ -418,6 +443,8 @@
 
         //convierte la posicion del raton en la pantalla a coordenadas reales del canvas
         //(por si el canvas se ve mas pequeño por el CSS)
+        //asi un punto (x, y) es el mismo en todos los clientes aunque cada pantalla sea de distinto tamaño
+        //"e" puede ser un evento de raton o un dedo de la pantalla tactil: ambos tienen clientX y clientY
         function obtenerCoordenadas(e) {
             const rect = canvas.getBoundingClientRect()
             return {
@@ -428,11 +455,12 @@
 
         //dibuja un trazo o una forma en el contexto indicado (lo usan el cliente local y el remoto)
         //tipo: 'trazo' (segmento del lapiz), 'linea', 'rect' o 'circulo'
+        //c: contexto donde se dibuja (ctx = lienzo real, ctxCapa = vista previa)
         function dibujar(c, trazo) {
-            c.beginPath()
-            c.strokeStyle = trazo.color
-            c.lineWidth = trazo.grosor
-            c.lineCap = 'round'
+            c.beginPath()                  //empieza un camino nuevo (no se une con el anterior)
+            c.strokeStyle = trazo.color    //color de la linea
+            c.lineWidth = trazo.grosor     //grosor de la linea en pixeles
+            c.lineCap = 'round'            //puntas redondeadas: los segmentos seguidos se ven como una linea continua
             c.lineJoin = 'round'
 
             if (trazo.tipo === 'rect') {
@@ -444,28 +472,33 @@
                 c.ellipse(cx, cy, Math.abs(trazo.x1 - trazo.x0) / 2, Math.abs(trazo.y1 - trazo.y0) / 2, 0, 0, 2 * Math.PI)
             } else {
                 //'trazo' y 'linea' son un segmento entre dos puntos
-                c.moveTo(trazo.x0, trazo.y0)
-                c.lineTo(trazo.x1, trazo.y1)
+                c.moveTo(trazo.x0, trazo.y0)   //se ubica en el punto de inicio
+                c.lineTo(trazo.x1, trazo.y1)   //traza hasta el punto final
             }
-            c.stroke()
+            c.stroke() //pinta el camino en pantalla
         }
 
+        //borra la vista previa de la forma
         function limpiarCapa() {
             ctxCapa.clearRect(0, 0, capa.width, capa.height)
         }
 
-        //1. mousedown: empieza el trazo o la forma
-        canvas.addEventListener('mousedown', (e) => {
+        //las tres funciones de abajo hacen el trabajo; mas abajo se conectan
+        //tanto a los eventos del raton (mousedown/mousemove/mouseup) como a los del dedo (touch)
+
+        //1. empezar (mousedown): empieza el trazo o la forma
+        function empezar(e) {
             if (rol !== 'editor') return //los lectores no pueden dibujar
             dibujando = true
             const p = obtenerCoordenadas(e)
+            //se guarda el punto inicial: lo necesitan las formas y el primer segmento del lapiz
             inicioX = ultimoX = p.x
             inicioY = ultimoY = p.y
-        })
+        }
 
-        //2. mousemove
-        canvas.addEventListener('mousemove', (e) => {
-            if (!dibujando) return
+        //2. mover (mousemove): se ejecuta muchas veces por segundo mientras se arrastra
+        function mover(e) {
+            if (!dibujando) return //si no hay boton presionado, solo se esta moviendo el cursor
             const p = obtenerCoordenadas(e)
 
             if (FORMAS.includes(herramienta)) {
@@ -474,6 +507,8 @@
                 dibujar(ctxCapa, { tipo: herramienta, x0: inicioX, y0: inicioY, x1: p.x, y1: p.y, color: colorActual, grosor: inputGrosor.value })
             } else {
                 //lapiz / borrador: por cada movimiento se dibuja localmente y se envia el JSON al servidor
+                //(TRANSMISION DE ALTA FRECUENCIA: un mensaje por cada movimiento, sin esperar a soltar)
+                //cada mensaje es un segmento corto: del punto anterior al punto actual
                 const esBorrador = herramienta === 'borrador'
                 const trazo = {
                     tipo: 'trazo',
@@ -486,11 +521,12 @@
                 socket.emit('dibujar', trazo) //lo envio al servidor (alta frecuencia)
             }
 
+            //el punto actual pasa a ser el "anterior" del siguiente segmento
             ultimoX = p.x
             ultimoY = p.y
-        })
+        }
 
-        //3. mouseup / mouseleave: termina el trazo; si es una forma se fija en el lienzo y se envia
+        //3. terminar (mouseup / mouseleave): termina el trazo; si es una forma se fija en el lienzo y se envia
         function terminar() {
             if (!dibujando) return
             dibujando = false
@@ -504,16 +540,37 @@
                 socket.emit('dibujar', forma)
             }
         }
+
+        //eventos del raton (computadora)
+        canvas.addEventListener('mousedown', empezar)
+        canvas.addEventListener('mousemove', mover)
         canvas.addEventListener('mouseup', terminar)
-        canvas.addEventListener('mouseleave', terminar)
+        canvas.addEventListener('mouseleave', terminar) //si el cursor sale del lienzo tambien se corta el trazo
+
+        //eventos tactiles (celular / tablet): se usa el primer dedo que toca la pantalla
+        //preventDefault evita que la pagina se desplace y que el navegador
+        //genere ademas eventos de raton falsos (se dibujaria doble)
+        //passive: false es necesario para que el navegador permita usar preventDefault
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault()
+            empezar(e.touches[0])
+        }, { passive: false })
+        canvas.addEventListener('touchmove', (e) => {
+            e.preventDefault()
+            mover(e.touches[0])
+        }, { passive: false })
+        canvas.addEventListener('touchend', terminar)
+        canvas.addEventListener('touchcancel', terminar) //el sistema interrumpe el toque (ej. llega una llamada)
 
         //4. recepcion: cuando llega un trazo o forma de otro cliente se dibuja en las mismas coordenadas
+        //(se usa la misma funcion dibujar(), por eso se ve identico en todas las pantallas)
         socket.on('dibujar', (trazo) => {
             dibujar(ctx, trazo)
         })
 
         //5. sincronizacion para quien entra tarde
         //el servidor me pide una foto de mi lienzo para un participante nuevo
+        //toDataURL convierte todo el lienzo en una imagen PNG codificada como texto
         socket.on('pedir-estado', (destino) => {
             socket.emit('estado', { destino, imagen: canvas.toDataURL('image/png') })
         })
@@ -537,12 +594,15 @@
             mostrarAviso('Pizarra borrada')
         })
 
+        //otro participante borro la pizarra
         socket.on('limpiar', () => {
             ctx.clearRect(0, 0, canvas.width, canvas.height)
             mostrarAviso('Otro participante borró la pizarra')
         })
 
         // ---------- estado de conexion ----------
+        //'connect' y 'disconnect' son eventos propios de socket.io;
+        //si se cae la conexion, socket.io intenta reconectar solo
 
         socket.on('connect', () => {
             document.getElementById('conexion').classList.add('online')
@@ -554,6 +614,7 @@
             document.getElementById('textoConexion').textContent = 'Desconectado'
         })
 
+        //el servidor avisa cuantas personas hay conectadas
         socket.on('usuarios', (cantidad) => {
             document.getElementById('usuarios').textContent = cantidad
         })
@@ -582,7 +643,7 @@
             //un lector solo puede compartir el enlace de vista
             selectPermiso.querySelector('[value="editar"]').disabled = !esEditor
             selectPermiso.value = esEditor ? 'editar' : 'ver'
-            ajustarCapa()
+            ajustarCapa() //al ocultar la barra de herramientas el lienzo se mueve
         })
 
         //arma el enlace segun la opcion elegida
@@ -595,13 +656,16 @@
             botonCopiar.textContent = 'Copiar enlace'
         }
 
+        //boton "Compartir": abre el dialogo con el enlace listo
         document.getElementById('compartir').addEventListener('click', () => {
             actualizarEnlace()
             dialogo.showModal()
         })
 
+        //al cambiar entre "Puede editar" y "Puede ver" se cambia el enlace
         selectPermiso.addEventListener('change', actualizarEnlace)
 
+        //copia el enlace al portapapeles
         botonCopiar.addEventListener('click', async () => {
             try {
                 await navigator.clipboard.writeText(inputEnlace.value)
